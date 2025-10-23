@@ -180,5 +180,5 @@ MIT License - see LICENSE file for details
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: December 2024
+**Version**: 1.0.0  (BETA)
+**Last Updated**: 23/10/2025
