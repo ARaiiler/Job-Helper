@@ -1,20 +1,18 @@
-import { ChromaApi, OpenAIEmbeddingFunction } from 'chromadb';
+import { ChromaClient, Collection, EmbeddingFunction } from 'chromadb';
+import { OpenAIEmbeddingFunction } from '../shared/OpenAIEmbeddingFunction';
 import { v4 as uuidv4 } from 'uuid';
 import { ProfileChunk, TailoredContent, ResumePreview, Job, JobAnalysis, WorkExperience, Skill, Education } from '../shared/types';
 
 export default class RAGService {
-  private client: ChromaApi;
-  private collection: any;
-  private embeddingFunction: OpenAIEmbeddingFunction;
+  private client: ChromaClient;
+  private collection: Collection | null = null;
+  private embeddingFunction: EmbeddingFunction;
   private apiKey: string;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
-    this.client = new ChromaApi();
-    this.embeddingFunction = new OpenAIEmbeddingFunction({
-      openai_api_key: apiKey,
-      openai_model: 'text-embedding-3-small'
-    });
+    this.client = new ChromaClient();
+    this.embeddingFunction = new OpenAIEmbeddingFunction(apiKey, 'text-embedding-3-small');
   }
 
   async initialize(): Promise<void> {
@@ -35,7 +33,7 @@ export default class RAGService {
 
     // Chunk work achievements
     workExperience.forEach(exp => {
-      exp.achievements.forEach((achievement, index) => {
+      exp.achievements.forEach(achievement => {
         chunks.push({
           id: uuidv4(),
           content: `Work Achievement at ${exp.company} as ${exp.title}: ${achievement}`,
@@ -108,10 +106,21 @@ export default class RAGService {
         relevance_score: chunk.metadata.relevance_score
       }));
 
+      if (!this.collection) {
+        throw new Error('Collection not initialized');
+      }
+
+      const safeMetadatas = metadatas.map(metadata => ({
+        type: metadata.type,
+        source_id: metadata.source_id,
+        date: metadata.date,
+        relevance_score: metadata.relevance_score || null
+      }));
+
       await this.collection.add({
         ids,
         documents: contents,
-        metadatas
+        metadatas: safeMetadatas
       });
     } catch (error) {
       console.error('Failed to index profile chunks:', error);
@@ -140,16 +149,21 @@ export default class RAGService {
 
       // Convert results to ProfileChunk format
       const chunks: ProfileChunk[] = [];
-      if (results.ids && results.ids[0]) {
+      if (results.ids?.[0] && results.documents?.[0] && results.metadatas?.[0]) {
         for (let i = 0; i < results.ids[0].length; i++) {
+          const metadata = results.metadatas[0][i];
+          if (!metadata || typeof metadata.type !== 'string' || !metadata.source_id || !metadata.date) {
+            continue;
+          }
+          
           chunks.push({
             id: results.ids[0][i],
-            content: results.documents[0][i],
-            type: results.metadatas[0][i].type,
+            content: results.documents[0][i] || '',
+            type: metadata.type as 'work_achievement' | 'skill' | 'education' | 'project',
             metadata: {
-              source_id: results.metadatas[0][i].source_id,
-              date: results.metadatas[0][i].date,
-              relevance_score: results.distances[0][i] ? 1 - results.distances[0][i] : 0.5
+              source_id: Number(metadata.source_id),
+              date: String(metadata.date),
+              relevance_score: results.distances?.[0]?.[i] ? 1 - (results.distances[0][i] ?? 0) : 0.5
             }
           });
         }
@@ -242,11 +256,11 @@ Return ONLY a valid JSON object with this structure:
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json() as any;
         throw new Error(`OpenAI API error: ${errorData.error?.message || 'Unknown error'}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as any;
       const content = data.choices[0]?.message?.content;
 
       if (!content) {
@@ -288,7 +302,9 @@ Return ONLY a valid JSON object with this structure:
 
   async clearEmbeddings(): Promise<void> {
     try {
-      await this.collection.delete();
+      if (this.collection) {
+        await this.collection.delete({});
+      }
       await this.initialize();
     } catch (error) {
       console.error('Failed to clear embeddings:', error);

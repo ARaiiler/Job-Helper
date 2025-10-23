@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { FieldMapping } from '../shared/types';
 import * as path from 'path';
-import * as fs from 'fs';
 import Database from './database';
 import AIService from './ai-service';
 import RAGService from './rag-service';
@@ -298,7 +298,7 @@ if (database) {
     return await ragService.generateTailoredResume(job, relevantChunks);
   });
 
-  ipcMain.handle('rag:preview-resume', async (_, jobId, tailoredContent) => {
+  ipcMain.handle('rag:preview-resume', async (_, _jobId, tailoredContent) => {
     if (!ragService) {
       throw new Error('RAG service not initialized');
     }
@@ -323,14 +323,12 @@ if (database) {
       throw new Error('RAG service not initialized');
     }
 
-    // Get all user profile data
-    const [workExperience, skills, education] = await Promise.all([
-      database!.getAllWorkExperience(),
-      database!.getAllSkills(),
-      database!.getAllEducation()
-    ]);
-
-    await ragService.reindexProfile(workExperience, skills, education);
+    // Get all user profile data and reindex
+    await ragService.reindexProfile(
+      await database!.getAllWorkExperience(),
+      await database!.getAllSkills(),
+      await database!.getAllEducation()
+    );
   });
 
   ipcMain.handle('rag:clear-embeddings', async () => {
@@ -412,7 +410,7 @@ if (database) {
     return aiService!.getModel(); // Using AI service store for now
   });
 
-  ipcMain.handle('pdf:save-settings', async (_, settings) => {
+  ipcMain.handle('pdf:save-settings', async (_event, _settings) => {
     // Save PDF settings to store
     // Implementation depends on your storage preference
   });
@@ -466,7 +464,7 @@ if (database) {
           formFields: [],
           pageTitle: '',
           pageUrl: '',
-          errors: [error.toString()],
+          errors: [(error as Error).message || error?.toString() || 'Unknown error'],
           warnings: []
         }
       };
@@ -532,7 +530,15 @@ if (database) {
         application_id: applicationId,
         action: 'fill_form' as const,
         status: result.success ? 'success' as const : 'failed' as const,
-        details: result,
+        details: {
+          success: result.success,
+          applyButtonFound: true,
+          formFields: result.filledFields.map(f => f.detectedField),
+          pageTitle: '',
+          pageUrl: job.job_url,
+          errors: result.errors,
+          warnings: result.warnings
+        },
         screenshot_path: result.screenshots[result.screenshots.length - 1]
       };
       
@@ -550,11 +556,12 @@ if (database) {
         status: 'error' as const,
         details: {
           success: false,
-          filledFields: [],
-          unfilledFields: [],
-          errors: [error.toString()],
-          warnings: [],
-          screenshots: []
+          applyButtonFound: false,
+          formFields: [],
+          pageTitle: '',
+          pageUrl: job.job_url,
+          errors: [(error as Error).message || 'Unknown error'],
+          warnings: []
         }
       };
       
@@ -608,7 +615,15 @@ if (database) {
         application_id: applicationId,
         action: 'submit' as const,
         status: 'success' as const,
-        details: submission,
+        details: {
+          success: submission.success,
+          applyButtonFound: true,
+          formFields: confirmData.map((f: FieldMapping) => f.detectedField),
+          pageTitle: '',
+          pageUrl: submission.finalUrl,
+          errors: [],
+          warnings: []
+        },
         screenshot_path: ''
       };
       
@@ -652,7 +667,15 @@ if (database) {
         job_id: jobId,
         action: 'detect' as const,
         status: detection.detected ? 'success' as const : 'success' as const,
-        details: detection,
+        details: {
+          success: detection.detected,
+          applyButtonFound: false,
+          formFields: [],
+          pageTitle: '',
+          pageUrl: detection.pageUrl,
+          errors: [],
+          warnings: []
+        },
         screenshot_path: detection.screenshotPath
       };
       
@@ -843,7 +866,41 @@ if (database) {
     if (!pdfService) {
       throw new Error('PDF service not initialized');
     }
-    return await pdfService.generateResume(settings);
+    // Get profile data first
+    const [personalInfo, workExperience, education, skills, certifications] = await Promise.all([
+      database!.getPersonalInfo(),
+      database!.getAllWorkExperience(),
+      database!.getAllEducation(),
+      database!.getAllSkills(),
+      database!.getAllCertifications()
+    ]);
+
+    if (!personalInfo) {
+      throw new Error('Personal information not found. Please complete your profile.');
+    }
+
+    // Prepare resume data
+    const resumeData = {
+      personalInfo,
+      tailoredContent: {
+        selected_experiences: [],
+        rewritten_achievements: [],
+        skills_to_highlight: [],
+        custom_summary: '',
+        generated_at: new Date().toISOString()
+      },
+      workExperience,
+      education,
+      skills,
+      certifications,
+      jobInfo: {
+        company: "Export",
+        position: "Generic Resume",
+        jobAnalysis: undefined
+      }
+    };
+
+    return await pdfService.generateResume(resumeData, settings);
   });
 
   // Error Logging handlers

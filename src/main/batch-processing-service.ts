@@ -70,10 +70,11 @@ export default class BatchProcessingService extends EventEmitter {
       if (session.status === 'paused') {
         this.addLog(sessionId, 'info', 'Batch processing paused');
         // Wait for resume
-        while (session.status === 'paused' && this.isProcessing && session.status !== 'stopped') {
+        while (session.status === 'paused' && this.isProcessing) {
           await this.delay(1000);
         }
-        if (session.status === 'stopped') break;
+        // After waiting, check if processing should stop
+        if (!this.isProcessing || !['running', 'paused'].includes(session.status)) break;
       }
 
       const jobId = jobIds[i];
@@ -171,7 +172,7 @@ export default class BatchProcessingService extends EventEmitter {
     await this.automationService.initialize();
 
     // Detect job page
-    const detectionResult = await this.automationService.detectJobPage(job.job_url);
+    const detectionResult = await this.automationService.detectJobPage(job.job_url, job.position);
     if (!detectionResult.success) {
       throw new Error(`Failed to detect job page: ${detectionResult.errors.join(', ')}`);
     }
@@ -182,8 +183,14 @@ export default class BatchProcessingService extends EventEmitter {
       throw new Error(`CAPTCHA detected: ${captchaDetection.type}`);
     }
 
+    // Get personal info
+    const personalInfo = await this.database.getPersonalInfo();
+    if (!personalInfo) {
+      throw new Error('Personal info not found');
+    }
+
     // Auto-fill form
-    const fillResult = await this.automationService.autoFillForm(job.job_url, await this.database.getPersonalInfo());
+    const fillResult = await this.automationService.autoFillForm(job.job_url, personalInfo);
     if (!fillResult.success) {
       throw new Error(`Auto-fill failed: ${fillResult.errors.join(', ')}`);
     }
@@ -198,7 +205,10 @@ export default class BatchProcessingService extends EventEmitter {
 
   private calculateDelay(jobBoard: JobBoardProfile | null): number {
     if (!jobBoard) {
-      return Math.floor(Math.random() * (this.activeSession?.settings.delay_max || 120 - this.activeSession?.settings.delay_min || 30)) + (this.activeSession?.settings.delay_min || 30);
+      const settings = this.activeSession?.settings;
+      const minDelay = settings?.delay_min || 30;
+      const maxDelay = settings?.delay_max || 120;
+      return Math.floor(Math.random() * (maxDelay - minDelay)) + minDelay;
     }
 
     const minDelay = jobBoard.rate_limit.min_delay;

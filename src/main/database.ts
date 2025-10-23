@@ -104,10 +104,28 @@ export default class Database {
           if (err) {
             reject(err);
           } else {
-            const experiences = rows.map(row => ({
-              ...row,
-              achievements: JSON.parse(row.achievements || '[]')
-            }));
+            const experiences = rows.map(row => {
+              if (typeof row === 'object' && row !== null) {
+                    const r = row as Record<string, any>;
+                    return {
+                      id: r.id,
+                      company: r.company || '',
+                      title: r.title || '',
+                      start_date: r.start_date || '',
+                      end_date: r.end_date,
+                      description: r.description,
+                      achievements: JSON.parse(typeof r.achievements === 'string' ? r.achievements : '[]'),
+                      created_at: r.created_at,
+                      updated_at: r.updated_at
+                    };
+              }
+              return {
+                company: '',
+                title: '',
+                start_date: '',
+                achievements: []
+              } as WorkExperience;
+            });
             resolve(experiences);
           }
         }
@@ -387,10 +405,27 @@ export default class Database {
           if (err) {
             reject(err);
           } else {
-            const jobs = rows.map(row => ({
-              ...row,
-              analysis_data: row.analysis_data ? JSON.parse(row.analysis_data) : undefined
-            }));
+            const jobs = rows.map(row => {
+              if (!row || typeof row !== 'object') {
+                return null;
+              }
+              const r = row as Record<string, any>;
+              return {
+                id: r.id,
+                company: r.company || '',
+                position: r.position || '',
+                job_url: r.job_url,
+                description: r.description,
+                date_added: r.date_added,
+                status: r.status,
+                notes: r.notes,
+                analysis_data: r.analysis_data ? JSON.parse(r.analysis_data) : undefined,
+                match_score: r.match_score,
+                analyzed_at: r.analyzed_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at
+              } as Job;
+            }).filter((job): job is Job => job !== null);
             resolve(jobs as Job[]);
           }
         }
@@ -407,12 +442,24 @@ export default class Database {
           if (err) {
             reject(err);
           } else {
-            if (row) {
-              const job = {
-                ...row,
-                analysis_data: row.analysis_data ? JSON.parse(row.analysis_data) : undefined
+            if (row && typeof row === 'object') {
+              const r = row as Record<string, any>;
+              const job: Job = {
+                id: r.id,
+                company: r.company || '',
+                position: r.position || '',
+                job_url: r.job_url,
+                description: r.description,
+                date_added: r.date_added,
+                status: r.status,
+                notes: r.notes,
+                analysis_data: r.analysis_data ? JSON.parse(r.analysis_data) : undefined,
+                match_score: r.match_score,
+                analyzed_at: r.analyzed_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at
               };
-              resolve(job as Job);
+              resolve(job);
             } else {
               resolve(null);
             }
@@ -493,14 +540,26 @@ export default class Database {
           if (err) {
             reject(err);
           } else {
-            resolve({
-              total: row.total || 0,
-              queued: row.queued || 0,
-              applied: row.applied || 0,
-              interviewing: row.interviewing || 0,
-              rejected: row.rejected || 0,
-              offers: row.offers || 0
-            });
+            const result = {
+              total: 0,
+              queued: 0,
+              applied: 0,
+              interviewing: 0,
+              rejected: 0,
+              offers: 0
+            };
+            
+            if (row && typeof row === 'object') {
+              const r = row as Record<string, any>;
+              result.total = typeof r.total === 'number' ? r.total : 0;
+              result.queued = typeof r.queued === 'number' ? r.queued : 0;
+              result.applied = typeof r.applied === 'number' ? r.applied : 0;
+              result.interviewing = typeof r.interviewing === 'number' ? r.interviewing : 0;
+              result.rejected = typeof r.rejected === 'number' ? r.rejected : 0;
+              result.offers = typeof r.offers === 'number' ? r.offers : 0;
+            }
+            
+            resolve(result);
           }
         }
       );

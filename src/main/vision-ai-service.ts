@@ -57,7 +57,10 @@ export default class VisionAIService {
         throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as any;
+      if (!data || !Array.isArray(data.choices) || !data.choices[0]?.message?.content) {
+        throw new Error('Invalid response format from OpenAI API');
+      }
       const analysisText = data.choices[0].message.content;
 
       // Parse the JSON response
@@ -160,7 +163,8 @@ User profile context for reference:
       'text', 'email', 'tel', 'select', 'textarea', 'file', 'checkbox', 'radio'
     ];
     
-    return validTypes.includes(type) ? type : 'text';
+    const validType = validTypes.find(t => t === type);
+    return validType || 'text';
   }
 
   private getPrefillValue(field: VisionField, personalInfo: PersonalInfo): string {

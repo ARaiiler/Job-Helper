@@ -360,7 +360,7 @@ export default class PDFService {
 
   private filterRelevantExperience(experiences: WorkExperience[], tailoredContent: TailoredContent): WorkExperience[] {
     const relevantIds = tailoredContent.selected_experiences.map(exp => exp.id);
-    return experiences.filter(exp => relevantIds.includes(exp.id));
+    return experiences.filter(exp => exp.id !== undefined && relevantIds.includes(exp.id));
   }
 
   private prioritizeSkills(skills: Skill[], jobAnalysis?: JobAnalysis): Skill[] {
